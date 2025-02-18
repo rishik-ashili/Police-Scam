@@ -62,6 +62,7 @@ class FloatingWindowService : Service() {
     private var screenshotManager: ScreenshotManager? = null
     private var objectDetector: ObjectDetector? = null
     private lateinit var screenshotAdapter: ScreenshotAdapter
+    private var screenshotCount = 0  // Add counter for screenshots
 
     private val params = WindowManager.LayoutParams(
         WindowManager.LayoutParams.WRAP_CONTENT,
@@ -275,7 +276,6 @@ class FloatingWindowService : Service() {
 
     private fun setupScreenshotControls(windowView: View) {
         val btnStartScreenshots = windowView.findViewById<Button>(R.id.btnStartScreenshots)
-        val btnProcessScreenshots = windowView.findViewById<Button>(R.id.btnProcessScreenshots)
         val statusText = windowView.findViewById<TextView>(R.id.screenshotStatus)
         val recyclerView = windowView.findViewById<RecyclerView>(R.id.screenshotsRecyclerView)
 
@@ -285,23 +285,21 @@ class FloatingWindowService : Service() {
         btnStartScreenshots.setOnClickListener {
             if (!isScreenshotting) {
                 startScreenshots(statusText)
-                btnStartScreenshots.text = "Stop Screenshots"
+                btnStartScreenshots.text = "Stop Recording"
             } else {
                 stopScreenshots()
-                btnStartScreenshots.text = "Start Screenshots"
-                statusText.text = "Status: Ready"
+                btnStartScreenshots.text = "Start Recording"
+                statusText.text = "Status: Analyzing screenshots..."
+                // Automatically process screenshots after stopping
+                processLatestScreenshots()
             }
-        }
-
-        btnProcessScreenshots.setOnClickListener {
-            processLatestScreenshots()
         }
     }
 
     private fun startScreenshots(statusText: TextView) {
         isScreenshotting = true
+        screenshotCount = 0  // Reset counter when starting new session
         screenshotJob = scope.launch {
-            var screenshotCount = 0
             while (isScreenshotting) {
                 try {
                     takeScreenshot(screenshotCount++)
@@ -318,6 +316,7 @@ class FloatingWindowService : Service() {
         isScreenshotting = false
         screenshotJob?.cancel()
         screenshotJob = null
+        // Don't reset screenshotCount here to maintain the count for processing
     }
 
     private fun takeScreenshot(count: Int) {
@@ -423,23 +422,63 @@ class FloatingWindowService : Service() {
     }
 
     private fun processLatestScreenshots() {
-        Log.d("FloatingService", "Starting to process latest screenshots")
+        Log.d("FloatingService", "Starting to process latest $screenshotCount screenshots")
+        
+        // Show analyzing notification
+        Toast.makeText(
+            this@FloatingWindowService,
+            "Analyzing ${screenshotCount} screenshots...",
+            Toast.LENGTH_SHORT
+        ).show()
+        
         scope.launch(Dispatchers.IO) {
             try {
-                val screenshots = loadLatestScreenshots()
+                val screenshots = loadLatestScreenshots(screenshotCount)
                 Log.d("FloatingService", "Loaded ${screenshots.size} screenshots")
 
+                var imagesWithDetections = 0
                 val processedScreenshots = screenshots.mapIndexed { index, bitmap ->
                     Log.d("FloatingService", "Processing screenshot $index")
                     val (processedBitmap, detections) = objectDetector?.detect(bitmap) 
                         ?: Pair(bitmap, emptyList())
+                    
+                    // Count images with detections
+                    if (detections.isNotEmpty()) {
+                        imagesWithDetections++
+                    }
+                    
                     Log.d("FloatingService", "Screenshot $index: Found ${detections.size} detections")
                     ScreenshotAdapter.ScreenshotItem(processedBitmap, detections)
                 }
 
+                // Calculate percentage of images with detections
+                val totalImages = processedScreenshots.size
+                val detectionPercentage = if (totalImages > 0) {
+                    (imagesWithDetections.toFloat() / totalImages.toFloat()) * 100
+                } else {
+                    0f
+                }
+
+                Log.d("FloatingService", "Detection stats: $imagesWithDetections out of $totalImages images have detections (${String.format("%.1f", detectionPercentage)}%)")
+
                 withContext(Dispatchers.Main) {
                     Log.d("FloatingService", "Updating UI with ${processedScreenshots.size} processed screenshots")
                     screenshotAdapter.updateScreenshots(processedScreenshots)
+
+                    // Show notification if more than 55% of images have detections
+                    if (detectionPercentage >= 55.0f) {
+                        Toast.makeText(
+                            this@FloatingWindowService,
+                            "Alert: ${String.format("%.1f", detectionPercentage)}% of images contain detections. Images have been reported.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    } else {
+                        Toast.makeText(
+                            this@FloatingWindowService,
+                            "Analysis complete: ${String.format("%.1f", detectionPercentage)}% of images contain detections",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                 }
             } catch (e: Exception) {
                 Log.e("FloatingService", "Error processing screenshots: ${e.message}")
@@ -455,8 +494,8 @@ class FloatingWindowService : Service() {
         }
     }
 
-    private fun loadLatestScreenshots(): List<Bitmap> {
-        Log.d("FloatingService", "Loading latest screenshots")
+    private fun loadLatestScreenshots(count: Int): List<Bitmap> {
+        Log.d("FloatingService", "Loading latest $count screenshots")
         val screenshots = mutableListOf<Bitmap>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val projection = arrayOf(
@@ -476,10 +515,10 @@ class FloatingWindowService : Service() {
                     sortOrder
                 )?.use { cursor ->
                     val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-                    var count = 0
+                    var loadedCount = 0
                     Log.d("FloatingService", "Found ${cursor.count} images in gallery")
                     
-                    while (cursor.moveToNext() && count < 10) {
+                    while (cursor.moveToNext() && loadedCount < count) {  // Only load the specified number of screenshots
                         val id = cursor.getLong(idColumn)
                         val uri = ContentUris.withAppendedId(
                             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
@@ -492,8 +531,8 @@ class FloatingWindowService : Service() {
                                 MediaStore.Images.Media.getBitmap(contentResolver, uri)
                             }
                             screenshots.add(bitmap)
-                            count++
-                            Log.d("FloatingService", "Loaded screenshot $count: ${bitmap.width}x${bitmap.height}")
+                            loadedCount++
+                            Log.d("FloatingService", "Loaded screenshot $loadedCount of $count: ${bitmap.width}x${bitmap.height}")
                         } catch (e: Exception) {
                             Log.e("FloatingService", "Error loading screenshot: ${e.message}")
                         }

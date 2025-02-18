@@ -10,7 +10,7 @@
         android:id="@+id/windowTitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Screenshot Control"
+        android:text="Screenshot Recording"
         android:textSize="18sp"
         android:textStyle="bold" />
 
@@ -19,7 +19,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:text="Start Screenshots" />
+        android:text="Start Recording" />
 
     <TextView
         android:id="@+id/screenshotStatus"
@@ -36,24 +36,11 @@
         android:layout_weight="1"
         android:layout_marginTop="8dp" />
 
-    <LinearLayout
-        android:layout_width="match_parent"
+    <Button
+        android:id="@+id/btnClose"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="end">
-
-        <Button
-            android:id="@+id/btnProcessScreenshots"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginEnd="8dp"
-            android:text="Process" />
-
-        <Button
-            android:id="@+id/btnClose"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Close" />
-    </LinearLayout>
+        android:layout_gravity="end"
+        android:text="Close" />
 
 </LinearLayout> 
