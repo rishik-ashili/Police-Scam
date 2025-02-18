@@ -58,7 +58,7 @@ class MainActivity : ComponentActivity() {
         if (permissions.all { it.value }) {
             requestMediaProjection()
         } else {
-            Toast.makeText(this, "Storage permissions required", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Required permissions were denied", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -95,6 +95,9 @@ class MainActivity : ComponentActivity() {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
             permissions.add(Manifest.permission.READ_MEDIA_IMAGES)
         }
+
+        // Add RECORD_AUDIO permission
+        permissions.add(Manifest.permission.RECORD_AUDIO)
 
         if (permissions.isNotEmpty()) {
             permissionsLauncher.launch(permissions.toTypedArray())

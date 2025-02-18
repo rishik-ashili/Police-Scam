@@ -52,6 +52,9 @@ dependencies {
     
     // RecyclerView for displaying images
     implementation("androidx.recyclerview:recyclerview:1.3.2")
+
+    // MPAndroidChart for graph visualization
+    implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
     
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

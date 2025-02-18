@@ -39,6 +39,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.recyclerview.widget.RecyclerView
+import com.github.mikephil.charting.data.LineData
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -63,6 +64,8 @@ class FloatingWindowService : Service() {
     private var objectDetector: ObjectDetector? = null
     private lateinit var screenshotAdapter: ScreenshotAdapter
     private var screenshotCount = 0  // Add counter for screenshots
+    private var voiceAnalysisManager: VoiceAnalysisManager? = null
+    private var isRecording = false
 
     private val params = WindowManager.LayoutParams(
         WindowManager.LayoutParams.WRAP_CONTENT,
@@ -231,11 +234,15 @@ class FloatingWindowService : Service() {
 
         if (buttonNumber == 2) {
             setupScreenshotControls(windowView)
+        } else if (buttonNumber == 1) {
+            setupVoiceAnalysisControls(windowView)
         }
 
         windowView.findViewById<Button>(R.id.btnClose).setOnClickListener {
             if (buttonNumber == 2) {
                 stopScreenshots()
+            } else if (buttonNumber == 1) {
+                stopVoiceRecording()
             }
             windowManager.removeView(windowView)
             floatingWindows.remove(windowView)
@@ -292,6 +299,64 @@ class FloatingWindowService : Service() {
                 statusText.text = "Status: Analyzing screenshots..."
                 // Automatically process screenshots after stopping
                 processLatestScreenshots()
+            }
+        }
+    }
+
+    private fun setupVoiceAnalysisControls(windowView: View) {
+        val btnStartVoiceRecording = windowView.findViewById<Button>(R.id.btnStartVoiceRecording)
+        val recordingStatus = windowView.findViewById<TextView>(R.id.recordingStatus)
+        val transcriptionText = windowView.findViewById<TextView>(R.id.transcriptionText)
+        val riskScoreText = windowView.findViewById<TextView>(R.id.riskScoreText)
+        val riskGraph = windowView.findViewById<com.github.mikephil.charting.charts.LineChart>(R.id.riskGraph)
+
+        // Initialize voice analysis manager
+        voiceAnalysisManager = VoiceAnalysisManager(this)
+
+        // Setup graph
+        riskGraph.apply {
+            description.isEnabled = false
+            setTouchEnabled(true)
+            isDragEnabled = true
+            setScaleEnabled(true)
+            setPinchZoom(true)
+            axisRight.isEnabled = false
+            xAxis.setDrawGridLines(false)
+            axisLeft.apply {
+                axisMinimum = 0f
+                axisMaximum = 100f
+                setDrawGridLines(true)
+            }
+        }
+
+        // Collect flows
+        scope.launch {
+            voiceAnalysisManager?.transcriptionFlow?.collect { text ->
+                transcriptionText.text = text
+            }
+        }
+
+        scope.launch {
+            voiceAnalysisManager?.riskScoreFlow?.collect { score ->
+                riskScoreText.text = "${String.format("%.1f", score)}%"
+            }
+        }
+
+        scope.launch {
+            voiceAnalysisManager?.graphDataFlow?.collect { entries ->
+                if (entries.isNotEmpty()) {
+                    val dataSet = voiceAnalysisManager?.createLineDataSet(entries)
+                    riskGraph.data = LineData(dataSet)
+                    riskGraph.invalidate()
+                }
+            }
+        }
+
+        btnStartVoiceRecording.setOnClickListener {
+            if (!isRecording) {
+                startVoiceRecording(btnStartVoiceRecording, recordingStatus)
+            } else {
+                stopVoiceRecording(btnStartVoiceRecording, recordingStatus)
             }
         }
     }
@@ -546,11 +611,27 @@ class FloatingWindowService : Service() {
         return screenshots
     }
 
+    private fun startVoiceRecording(button: Button, status: TextView) {
+        isRecording = true
+        button.text = "Stop Recording"
+        status.text = "Status: Recording..."
+        voiceAnalysisManager?.startListening()
+    }
+
+    private fun stopVoiceRecording(button: Button? = null, status: TextView? = null) {
+        isRecording = false
+        button?.text = "Start Recording"
+        status?.text = "Status: Ready"
+        voiceAnalysisManager?.stopListening()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         stopScreenshots()
+        stopVoiceRecording()
         screenshotManager?.tearDown()
         objectDetector?.close()
+        voiceAnalysisManager?.destroy()
         windowManager.removeView(floatingView)
         floatingWindows.forEach { windowManager.removeView(it) }
     }
