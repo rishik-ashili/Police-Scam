@@ -110,24 +110,28 @@ class FloatingWindowService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent != null) {
-            val resultCode = intent.getIntExtra("resultCode", -1)
-            val data: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                intent.getParcelableExtra("resultData", Intent::class.java)
-            } else {
-                @Suppress("DEPRECATION")
-                intent.getParcelableExtra("resultData")
-            }
-
-            if (resultCode != -1 && data != null) {
-                Log.d("FloatingService", "Received projection data, initializing...")
-                screenshotManager?.initializeProjection(resultCode, data)
-            } else {
-                Log.e("FloatingService", "Invalid projection data received: resultCode=$resultCode, data=$data")
-            }
-        } else {
+        if (intent == null) {
             Log.e("FloatingService", "No intent received in onStartCommand")
+            return START_NOT_STICKY
         }
+
+        val resultCode = intent.getIntExtra("resultCode", -1)
+        val data: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra("resultData", Intent::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra("resultData")
+        }
+
+        if (resultCode == Activity.RESULT_OK && data != null) {
+            Log.d("FloatingService", "Received valid projection data with resultCode: $resultCode")
+            screenshotManager = ScreenshotManager(this)
+            screenshotManager?.initializeProjection(resultCode, data)
+        } else {
+            Log.e("FloatingService", "Invalid projection data received: resultCode=$resultCode, data=$data")
+        }
+
+        // Rest of your service initialization code...
         return START_STICKY
     }
 
@@ -136,6 +140,14 @@ class FloatingWindowService : Service() {
     private fun setupFloatingIcon() {
         floatingView = LayoutInflater.from(this).inflate(R.layout.layout_floating_icon, null)
         dropdownButtons = floatingView.findViewById(R.id.dropdownButtons)
+
+        // Set up close button
+        floatingView.findViewById<View>(R.id.btnCloseFloating).setOnClickListener {
+            stopScreenshots()
+            stopSelf()
+            windowManager.removeView(floatingView)
+            floatingWindows.forEach { windowManager.removeView(it) }
+        }
 
         // Set up drag functionality
         var initialX = 0

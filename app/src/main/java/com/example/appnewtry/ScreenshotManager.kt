@@ -46,17 +46,23 @@ class ScreenshotManager(private val context: Context) {
             Log.d("ScreenshotManager", "Starting projection initialization with resultCode: $resultCode")
             val projectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             
-            mediaProjection?.stop() // Stop any existing projection
+            // Clean up existing resources
+            tearDown()
             
             mediaProjection = projectionManager.getMediaProjection(resultCode, data)
             if (mediaProjection == null) {
                 Log.e("ScreenshotManager", "Failed to create MediaProjection")
+                isInitialized = false
                 return
             }
 
-            // Release any existing resources
-            virtualDisplay?.release()
-            imageReader?.close()
+            // Register callback to handle projection state changes
+            mediaProjection?.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {
+                    Log.d("ScreenshotManager", "MediaProjection stopped")
+                    tearDown()
+                }
+            }, handler)
 
             // Create new ImageReader
             imageReader = ImageReader.newInstance(
@@ -65,7 +71,7 @@ class ScreenshotManager(private val context: Context) {
             ).apply {
                 setOnImageAvailableListener({ reader ->
                     Log.d("ScreenshotManager", "New image is available from ImageReader")
-                }, Handler(Looper.getMainLooper()))
+                }, handler)
             }
 
             // Create virtual display
@@ -75,11 +81,12 @@ class ScreenshotManager(private val context: Context) {
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                 imageReader?.surface,
                 null,
-                Handler(Looper.getMainLooper())
+                handler
             )
 
             if (virtualDisplay == null) {
                 Log.e("ScreenshotManager", "Failed to create Virtual Display")
+                tearDown()
                 return
             }
 
@@ -88,7 +95,7 @@ class ScreenshotManager(private val context: Context) {
         } catch (e: Exception) {
             Log.e("ScreenshotManager", "Error in initializeProjection: ${e.message}")
             e.printStackTrace()
-            isInitialized = false
+            tearDown()
         }
     }
 

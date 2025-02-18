@@ -29,19 +29,25 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK && result.data != null) {
-            Log.d("MainActivity", "MediaProjection permission granted")
-            val serviceIntent = Intent(this, FloatingWindowService::class.java)
-            serviceIntent.putExtra("resultCode", result.resultCode)
-            serviceIntent.putExtra("resultData", result.data)
-            
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent)
-            } else {
-                startService(serviceIntent)
+            Log.d("MainActivity", "MediaProjection permission granted with resultCode: ${result.resultCode}")
+            val serviceIntent = Intent(this, FloatingWindowService::class.java).apply {
+                putExtra("resultCode", result.resultCode)
+                putExtra("resultData", result.data)
             }
-            Log.d("MainActivity", "Service started with projection data")
+            
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(serviceIntent)
+                } else {
+                    startService(serviceIntent)
+                }
+                Log.d("MainActivity", "Service started with projection data: resultCode=${result.resultCode}")
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Error starting service: ${e.message}")
+                Toast.makeText(this, "Failed to start service: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
         } else {
-            Log.e("MainActivity", "MediaProjection permission denied")
+            Log.e("MainActivity", "MediaProjection permission denied: resultCode=${result.resultCode}")
             Toast.makeText(this, "Screen capture permission denied", Toast.LENGTH_SHORT).show()
         }
     }

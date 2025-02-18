@@ -1,48 +1,63 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:orientation="vertical">
-
-    <ImageView
-        android:id="@+id/floatingIcon"
-        android:layout_width="56dp"
-        android:layout_height="56dp"
-        android:background="@drawable/ic_floating"
-        android:contentDescription="Floating Icon"
-        android:elevation="8dp"
-        android:padding="8dp"
-        android:src="@drawable/ic_menu" />
+    android:layout_height="wrap_content">
 
     <LinearLayout
-        android:id="@+id/dropdownButtons"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:background="#FFFFFF"
-        android:elevation="4dp"
-        android:orientation="vertical"
-        android:padding="4dp"
-        android:visibility="gone">
+        android:orientation="vertical">
 
-        <Button
-            android:id="@+id/button1"
+        <ImageView
+            android:id="@+id/floatingIcon"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:background="@drawable/ic_floating"
+            android:contentDescription="Floating Icon"
+            android:elevation="8dp"
+            android:padding="8dp"
+            android:src="@drawable/ic_menu" />
+
+        <LinearLayout
+            android:id="@+id/dropdownButtons"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="4dp"
-            android:text="1" />
+            android:layout_marginTop="8dp"
+            android:background="#FFFFFF"
+            android:elevation="4dp"
+            android:orientation="vertical"
+            android:padding="4dp"
+            android:visibility="gone">
 
-        <Button
-            android:id="@+id/button2"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="4dp"
-            android:text="2" />
+            <Button
+                android:id="@+id/button1"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"
+                android:text="1" />
 
-        <Button
-            android:id="@+id/button3"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="3" />
+            <Button
+                android:id="@+id/button2"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"
+                android:text="2" />
+
+            <Button
+                android:id="@+id/button3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="3" />
+        </LinearLayout>
     </LinearLayout>
-</LinearLayout> 
+
+    <ImageButton
+        android:id="@+id/btnCloseFloating"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:layout_gravity="end"
+        android:background="@drawable/ic_close_circle"
+        android:contentDescription="Close Floating Window"
+        android:padding="4dp" />
+
+</FrameLayout> 
