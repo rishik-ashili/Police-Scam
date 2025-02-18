@@ -1,15 +1,19 @@
 package com.example.appnewtry
 
+import android.app.Activity
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
+import android.graphics.ImageDecoder
 import android.graphics.PixelFormat
+import android.graphics.Point
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
@@ -22,6 +26,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.MediaStore
+import android.util.Log
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -32,22 +37,19 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import java.io.File
-import java.io.FileOutputStream
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import androidx.core.app.NotificationCompat
+import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import androidx.core.app.NotificationCompat
-import android.util.Log
-import android.graphics.Point
-import android.graphics.Rect
-import android.view.PixelCopy
-import android.app.Activity
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class FloatingWindowService : Service() {
     private lateinit var windowManager: WindowManager
@@ -58,6 +60,8 @@ class FloatingWindowService : Service() {
     private var screenshotJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main)
     private var screenshotManager: ScreenshotManager? = null
+    private var objectDetector: ObjectDetector? = null
+    private lateinit var screenshotAdapter: ScreenshotAdapter
 
     private val params = WindowManager.LayoutParams(
         WindowManager.LayoutParams.WRAP_CONTENT,
@@ -71,6 +75,8 @@ class FloatingWindowService : Service() {
         super.onCreate()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         screenshotManager = ScreenshotManager(this)
+        objectDetector = ObjectDetector(this)
+        screenshotAdapter = ScreenshotAdapter()
         setupFloatingIcon()
         startForeground()
     }
@@ -269,7 +275,12 @@ class FloatingWindowService : Service() {
 
     private fun setupScreenshotControls(windowView: View) {
         val btnStartScreenshots = windowView.findViewById<Button>(R.id.btnStartScreenshots)
+        val btnProcessScreenshots = windowView.findViewById<Button>(R.id.btnProcessScreenshots)
         val statusText = windowView.findViewById<TextView>(R.id.screenshotStatus)
+        val recyclerView = windowView.findViewById<RecyclerView>(R.id.screenshotsRecyclerView)
+
+        recyclerView.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
+        recyclerView.adapter = screenshotAdapter
 
         btnStartScreenshots.setOnClickListener {
             if (!isScreenshotting) {
@@ -280,6 +291,10 @@ class FloatingWindowService : Service() {
                 btnStartScreenshots.text = "Start Screenshots"
                 statusText.text = "Status: Ready"
             }
+        }
+
+        btnProcessScreenshots.setOnClickListener {
+            processLatestScreenshots()
         }
     }
 
@@ -407,10 +422,96 @@ class FloatingWindowService : Service() {
         }
     }
 
+    private fun processLatestScreenshots() {
+        Log.d("FloatingService", "Starting to process latest screenshots")
+        scope.launch(Dispatchers.IO) {
+            try {
+                val screenshots = loadLatestScreenshots()
+                Log.d("FloatingService", "Loaded ${screenshots.size} screenshots")
+
+                val processedScreenshots = screenshots.mapIndexed { index, bitmap ->
+                    Log.d("FloatingService", "Processing screenshot $index")
+                    val (processedBitmap, detections) = objectDetector?.detect(bitmap) 
+                        ?: Pair(bitmap, emptyList())
+                    Log.d("FloatingService", "Screenshot $index: Found ${detections.size} detections")
+                    ScreenshotAdapter.ScreenshotItem(processedBitmap, detections)
+                }
+
+                withContext(Dispatchers.Main) {
+                    Log.d("FloatingService", "Updating UI with ${processedScreenshots.size} processed screenshots")
+                    screenshotAdapter.updateScreenshots(processedScreenshots)
+                }
+            } catch (e: Exception) {
+                Log.e("FloatingService", "Error processing screenshots: ${e.message}")
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@FloatingWindowService,
+                        "Error processing screenshots: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
+    private fun loadLatestScreenshots(): List<Bitmap> {
+        Log.d("FloatingService", "Loading latest screenshots")
+        val screenshots = mutableListOf<Bitmap>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val projection = arrayOf(
+                MediaStore.Images.Media._ID,
+                MediaStore.Images.Media.DATE_ADDED
+            )
+            val selection = "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?"
+            val selectionArgs = arrayOf("%Pictures%")
+            val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
+
+            try {
+                contentResolver.query(
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                    projection,
+                    selection,
+                    selectionArgs,
+                    sortOrder
+                )?.use { cursor ->
+                    val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                    var count = 0
+                    Log.d("FloatingService", "Found ${cursor.count} images in gallery")
+                    
+                    while (cursor.moveToNext() && count < 10) {
+                        val id = cursor.getLong(idColumn)
+                        val uri = ContentUris.withAppendedId(
+                            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                            id
+                        )
+                        try {
+                            val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                ImageDecoder.decodeBitmap(ImageDecoder.createSource(contentResolver, uri))
+                            } else {
+                                MediaStore.Images.Media.getBitmap(contentResolver, uri)
+                            }
+                            screenshots.add(bitmap)
+                            count++
+                            Log.d("FloatingService", "Loaded screenshot $count: ${bitmap.width}x${bitmap.height}")
+                        } catch (e: Exception) {
+                            Log.e("FloatingService", "Error loading screenshot: ${e.message}")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("FloatingService", "Error querying MediaStore: ${e.message}")
+            }
+        }
+        Log.d("FloatingService", "Loaded total of ${screenshots.size} screenshots")
+        return screenshots
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         stopScreenshots()
         screenshotManager?.tearDown()
+        objectDetector?.close()
         windowManager.removeView(floatingView)
         floatingWindows.forEach { windowManager.removeView(it) }
     }
