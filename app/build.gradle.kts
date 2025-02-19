@@ -56,6 +56,11 @@ dependencies {
     // MPAndroidChart for graph visualization
     implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
     
+    // Google Play Services
+    implementation("com.google.android.gms:play-services-base:18.3.0")
+    implementation("com.google.android.gms:play-services-basement:18.3.0")
+    implementation("com.google.android.gms:play-services-tasks:18.1.0")
+    
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

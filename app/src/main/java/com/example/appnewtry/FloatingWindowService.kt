@@ -155,13 +155,22 @@ class FloatingWindowService : Service() {
 
         if (resultCode == Activity.RESULT_OK && data != null) {
             Log.d("FloatingService", "Received valid projection data with resultCode: $resultCode")
+            val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            val mediaProjection = projectionManager.getMediaProjection(resultCode, data)
+            
+            // Initialize screenshot manager
             screenshotManager = ScreenshotManager(this)
             screenshotManager?.initializeProjection(resultCode, data)
+            
+            // Initialize voice analysis manager with media projection
+            voiceAnalysisManager = VoiceAnalysisManager(this)
+            mediaProjection?.let { projection ->
+                voiceAnalysisManager?.initializeMediaProjection(projection)
+            }
         } else {
             Log.e("FloatingService", "Invalid projection data received: resultCode=$resultCode, data=$data")
         }
 
-        // Rest of your service initialization code...
         return START_STICKY
     }
 
