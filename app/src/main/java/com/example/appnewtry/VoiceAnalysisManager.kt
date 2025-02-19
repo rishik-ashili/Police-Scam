@@ -1,5 +1,6 @@
 package com.example.appnewtry
 
+import android.app.Dialog
 import android.content.Context
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -7,7 +8,9 @@ import android.speech.SpeechRecognizer
 import android.os.Bundle
 import android.content.Intent
 import android.util.Log
-import android.widget.Toast
+import android.view.Gravity
+import android.view.LayoutInflater
+import android.view.WindowManager
 import android.os.Handler
 import android.os.Looper
 import com.github.mikephil.charting.data.Entry
@@ -21,8 +24,9 @@ class VoiceAnalysisManager(private val context: Context) {
     private var isListening = false
     private var currentLanguage = "hi-IN"
     private val riskIndicators = RiskIndicators()
-    private var lastToastTime = 0L
-    private val toastCooldown = 10000L // 10 seconds cooldown between toasts
+    private var lastAlertTime = 0L
+    private val alertCooldown = 10000L // 10 seconds cooldown between alerts
+    private var currentAlert: Dialog? = null
     
     private val _transcriptionFlow = MutableStateFlow("")
     val transcriptionFlow: StateFlow<String> = _transcriptionFlow
@@ -88,18 +92,12 @@ class VoiceAnalysisManager(private val context: Context) {
         val analysis = riskIndicators.analyzeText(updatedText)
         _riskScoreFlow.value = analysis.score
 
-        // Check if risk score is above threshold and show toast if needed
+        // Check if risk score is above threshold and show alert if needed
         if (analysis.score >= 55.0f) {
             val currentTime = System.currentTimeMillis()
-            if (currentTime - lastToastTime > toastCooldown) {
-                Handler(Looper.getMainLooper()).post {
-                    Toast.makeText(
-                        context,
-                        "Alert: Risk level at ${String.format("%.1f", analysis.score)}%. Call has been reported.",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-                lastToastTime = currentTime
+            if (currentTime - lastAlertTime > alertCooldown) {
+                (context as? FloatingWindowService)?.handleHighVoiceRisk(analysis.score)
+                lastAlertTime = currentTime
             }
         }
 
@@ -108,6 +106,46 @@ class VoiceAnalysisManager(private val context: Context) {
         val currentData = _graphDataFlow.value.toMutableList()
         currentData.add(Entry(timeCounter, analysis.score))
         _graphDataFlow.value = currentData
+    }
+
+    private fun showAlert(message: String) {
+        Handler(Looper.getMainLooper()).post {
+            try {
+                // Dismiss any existing alert
+                currentAlert?.dismiss()
+                
+                // Create and show new alert
+                val dialog = Dialog(context)
+                dialog.setContentView(R.layout.alert_dialog)
+                
+                // Set dialog window attributes
+                dialog.window?.apply {
+                    setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
+                    setBackgroundDrawableResource(android.R.color.transparent)
+                    setGravity(Gravity.CENTER)
+                    
+                    // Set layout parameters
+                    val params = attributes
+                    params.width = WindowManager.LayoutParams.WRAP_CONTENT
+                    params.height = WindowManager.LayoutParams.WRAP_CONTENT
+                    params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                    attributes = params
+                }
+
+                currentAlert = dialog
+                dialog.show()
+
+                // Automatically dismiss after 1 second
+                Handler(Looper.getMainLooper()).postDelayed({
+                    dialog.dismiss()
+                    currentAlert = null
+                }, 4000)
+            } catch (e: Exception) {
+                Log.e("VoiceAnalysis", "Error showing alert: ${e.message}")
+            }
+        }
     }
 
     fun startListening() {
@@ -145,5 +183,7 @@ class VoiceAnalysisManager(private val context: Context) {
         stopListening()
         speechRecognizer?.destroy()
         speechRecognizer = null
+        currentAlert?.dismiss()
+        currentAlert = null
     }
 } 

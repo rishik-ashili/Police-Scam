@@ -98,6 +98,10 @@ class MainActivity : ComponentActivity() {
 
         // Add RECORD_AUDIO permission
         permissions.add(Manifest.permission.RECORD_AUDIO)
+        
+        // Add location permissions
+        permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION)
 
         if (permissions.isNotEmpty()) {
             permissionsLauncher.launch(permissions.toTypedArray())

@@ -2,13 +2,45 @@
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/cautionTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="⚠️ IMPORTANT NOTICE"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:textColor="#D32F2F"
+        android:layout_marginBottom="16dp"
+        app:layout_constraintBottom_toTopOf="@id/cautionMessage"
+        app:layout_constraintLeft_toLeftOf="parent"
+        app:layout_constraintRight_toRightOf="parent" />
+
+    <TextView
+        android:id="@+id/cautionMessage"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="For your safety, please put all unknown calls on speaker mode for scam detection."
+        android:textSize="18sp"
+        android:textAlignment="center"
+        android:textColor="#D32F2F"
+        android:background="#FFEBEE"
+        android:padding="16dp"
+        android:layout_marginBottom="24dp"
+        android:elevation="4dp"
+        app:layout_constraintBottom_toTopOf="@id/btnStartFloating"
+        app:layout_constraintLeft_toLeftOf="parent"
+        app:layout_constraintRight_toRightOf="parent" />
 
     <Button
         android:id="@+id/btnStartFloating"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Start Floating App"
+        android:textSize="18sp"
+        android:padding="16dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintLeft_toLeftOf="parent"
         app:layout_constraintRight_toRightOf="parent"

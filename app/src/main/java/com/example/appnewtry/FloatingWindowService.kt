@@ -1,6 +1,7 @@
 package com.example.appnewtry
 
 import android.app.Activity
+import android.app.Dialog
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -66,6 +67,10 @@ class FloatingWindowService : Service() {
     private var screenshotCount = 0  // Add counter for screenshots
     private var voiceAnalysisManager: VoiceAnalysisManager? = null
     private var isRecording = false
+    private var currentAlert: Dialog? = null
+    private lateinit var locationHelper: LocationHelper
+    private var currentLocation: android.location.Location? = null
+    private lateinit var detectionHistoryAdapter: DetectionHistoryAdapter
 
     private val params = WindowManager.LayoutParams(
         WindowManager.LayoutParams.WRAP_CONTENT,
@@ -81,6 +86,16 @@ class FloatingWindowService : Service() {
         screenshotManager = ScreenshotManager(this)
         objectDetector = ObjectDetector(this)
         screenshotAdapter = ScreenshotAdapter()
+        locationHelper = LocationHelper(this)
+        
+        // Start collecting location updates
+        scope.launch {
+            locationHelper.locationFlow.collect { location ->
+                currentLocation = location
+            }
+        }
+        
+        locationHelper.startLocationUpdates()
         setupFloatingIcon()
         startForeground()
     }
@@ -113,7 +128,12 @@ class FloatingWindowService : Service() {
             .build()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+            startForeground(
+                1, 
+                notification, 
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or 
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            )
         } else {
             startForeground(1, notification)
         }
@@ -215,10 +235,10 @@ class FloatingWindowService : Service() {
     }
 
     private fun createFloatingWindow(buttonNumber: Int) {
-        val layoutRes = if (buttonNumber == 2) {
-            R.layout.layout_floating_window_screenshots
-        } else {
-            R.layout.layout_floating_window
+        val layoutRes = when (buttonNumber) {
+            2 -> R.layout.layout_floating_window_screenshots
+            3 -> R.layout.layout_detection_history
+            else -> R.layout.layout_floating_window
         }
 
         val windowView = LayoutInflater.from(this).inflate(layoutRes, null)
@@ -232,17 +252,16 @@ class FloatingWindowService : Service() {
 
         setupWindowDrag(windowView, windowParams)
 
-        if (buttonNumber == 2) {
-            setupScreenshotControls(windowView)
-        } else if (buttonNumber == 1) {
-            setupVoiceAnalysisControls(windowView)
+        when (buttonNumber) {
+            2 -> setupScreenshotControls(windowView)
+            1 -> setupVoiceAnalysisControls(windowView)
+            3 -> setupDetectionHistoryControls(windowView)
         }
 
         windowView.findViewById<Button>(R.id.btnClose).setOnClickListener {
-            if (buttonNumber == 2) {
-                stopScreenshots()
-            } else if (buttonNumber == 1) {
-                stopVoiceRecording()
+            when (buttonNumber) {
+                2 -> stopScreenshots()
+                1 -> stopVoiceRecording()
             }
             windowManager.removeView(windowView)
             floatingWindows.remove(windowView)
@@ -339,6 +358,8 @@ class FloatingWindowService : Service() {
         scope.launch {
             voiceAnalysisManager?.riskScoreFlow?.collect { score ->
                 riskScoreText.text = "${String.format("%.1f", score)}%"
+                // Add to detection history for all scores
+                addToDetectionHistory(DetectionType.AUDIO, score)
             }
         }
 
@@ -359,6 +380,27 @@ class FloatingWindowService : Service() {
                 stopVoiceRecording(btnStartVoiceRecording, recordingStatus)
             }
         }
+    }
+
+    private fun setupDetectionHistoryControls(windowView: View) {
+        val recyclerView = windowView.findViewById<RecyclerView>(R.id.detectionHistoryRecyclerView)
+        recyclerView.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
+        
+        // Initialize adapter if not already initialized
+        if (!::detectionHistoryAdapter.isInitialized) {
+            detectionHistoryAdapter = DetectionHistoryAdapter()
+        }
+        
+        // Set adapter to RecyclerView
+        recyclerView.adapter = detectionHistoryAdapter
+        
+        // Add divider between items
+        recyclerView.addItemDecoration(
+            androidx.recyclerview.widget.DividerItemDecoration(
+                this,
+                androidx.recyclerview.widget.DividerItemDecoration.VERTICAL
+            )
+        )
     }
 
     private fun startScreenshots(statusText: TextView) {
@@ -486,15 +528,56 @@ class FloatingWindowService : Service() {
         }
     }
 
+    private fun showAlert(message: String) {
+        Handler(Looper.getMainLooper()).post {
+            try {
+                // Dismiss any existing alert
+                currentAlert?.dismiss()
+                
+                // Create and show new alert
+                val dialog = Dialog(this)
+                dialog.setContentView(R.layout.alert_dialog)
+
+                // Update alert message with location if available
+                val alertMessage = dialog.findViewById<TextView>(R.id.alertMessage)
+                val locationText = currentLocation?.let {
+                    "\nLocation: ${String.format("%.6f", it.latitude)}, ${String.format("%.6f", it.longitude)}"
+                } ?: "\nLocation: Unavailable"
+                
+                alertMessage.text = "$message$locationText"
+                
+                // Set dialog window attributes
+                dialog.window?.apply {
+                    setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
+                    setBackgroundDrawableResource(android.R.color.transparent)
+                    setGravity(Gravity.CENTER)
+                    
+                    // Set layout parameters
+                    val params = attributes
+                    params.width = WindowManager.LayoutParams.WRAP_CONTENT
+                    params.height = WindowManager.LayoutParams.WRAP_CONTENT
+                    params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                    attributes = params
+                }
+
+                currentAlert = dialog
+                dialog.show()
+
+                // Automatically dismiss after 3.5 seconds
+                Handler(Looper.getMainLooper()).postDelayed({
+                    dialog.dismiss()
+                    currentAlert = null
+                }, 4000)
+            } catch (e: Exception) {
+                Log.e("FloatingService", "Error showing alert: ${e.message}")
+            }
+        }
+    }
+
     private fun processLatestScreenshots() {
         Log.d("FloatingService", "Starting to process latest $screenshotCount screenshots")
-        
-        // Show analyzing notification
-        Toast.makeText(
-            this@FloatingWindowService,
-            "Analyzing ${screenshotCount} screenshots...",
-            Toast.LENGTH_SHORT
-        ).show()
         
         scope.launch(Dispatchers.IO) {
             try {
@@ -507,7 +590,6 @@ class FloatingWindowService : Service() {
                     val (processedBitmap, detections) = objectDetector?.detect(bitmap) 
                         ?: Pair(bitmap, emptyList())
                     
-                    // Count images with detections
                     if (detections.isNotEmpty()) {
                         imagesWithDetections++
                     }
@@ -516,7 +598,6 @@ class FloatingWindowService : Service() {
                     ScreenshotAdapter.ScreenshotItem(processedBitmap, detections)
                 }
 
-                // Calculate percentage of images with detections
                 val totalImages = processedScreenshots.size
                 val detectionPercentage = if (totalImages > 0) {
                     (imagesWithDetections.toFloat() / totalImages.toFloat()) * 100
@@ -524,37 +605,20 @@ class FloatingWindowService : Service() {
                     0f
                 }
 
-                Log.d("FloatingService", "Detection stats: $imagesWithDetections out of $totalImages images have detections (${String.format("%.1f", detectionPercentage)}%)")
-
                 withContext(Dispatchers.Main) {
-                    Log.d("FloatingService", "Updating UI with ${processedScreenshots.size} processed screenshots")
                     screenshotAdapter.updateScreenshots(processedScreenshots)
-
-                    // Show notification if more than 55% of images have detections
+                    
+                    // Add to detection history regardless of risk level
+                    addToDetectionHistory(DetectionType.IMAGE, detectionPercentage)
+                    
+                    // Show alert only for high risk
                     if (detectionPercentage >= 55.0f) {
-                        Toast.makeText(
-                            this@FloatingWindowService,
-                            "Alert: ${String.format("%.1f", detectionPercentage)}% of images contain detections. Images have been reported.",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    } else {
-                        Toast.makeText(
-                            this@FloatingWindowService,
-                            "Analysis complete: ${String.format("%.1f", detectionPercentage)}% of images contain detections",
-                            Toast.LENGTH_LONG
-                        ).show()
+                        showAlert("Suspicious Activity Level: ${String.format("%.1f", detectionPercentage)}%")
                     }
                 }
             } catch (e: Exception) {
                 Log.e("FloatingService", "Error processing screenshots: ${e.message}")
                 e.printStackTrace()
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(
-                        this@FloatingWindowService,
-                        "Error processing screenshots: ${e.message}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
             }
         }
     }
@@ -625,6 +689,33 @@ class FloatingWindowService : Service() {
         voiceAnalysisManager?.stopListening()
     }
 
+    private fun addToDetectionHistory(type: DetectionType, riskScore: Float) {
+        try {
+            if (!::detectionHistoryAdapter.isInitialized) {
+                detectionHistoryAdapter = DetectionHistoryAdapter()
+            }
+            
+            val detection = DetectionItem(
+                timestamp = System.currentTimeMillis(),
+                type = type,
+                riskScore = riskScore
+            )
+            
+            Handler(Looper.getMainLooper()).post {
+                detectionHistoryAdapter.addDetection(detection)
+                Log.d("FloatingService", "Added detection to history: $detection")
+            }
+        } catch (e: Exception) {
+            Log.e("FloatingService", "Error adding to detection history: ${e.message}")
+        }
+    }
+
+    fun handleHighVoiceRisk(riskScore: Float) {
+        Log.d("FloatingService", "Handling high voice risk with score: $riskScore")
+        // Only show alert for high risk, detection is already added in setupVoiceAnalysisControls
+        showAlert("Scam Risk Level: ${String.format("%.1f", riskScore)}%")
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         stopScreenshots()
@@ -632,6 +723,8 @@ class FloatingWindowService : Service() {
         screenshotManager?.tearDown()
         objectDetector?.close()
         voiceAnalysisManager?.destroy()
+        locationHelper.stopLocationUpdates()
+        currentAlert?.dismiss()
         windowManager.removeView(floatingView)
         floatingWindows.forEach { windowManager.removeView(it) }
     }
