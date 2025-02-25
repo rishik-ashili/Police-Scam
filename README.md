@@ -28,5 +28,5 @@ Future Plans
 - Include SMS scam detection to identify malicious links.   
 - Incorporate advanced location tracking features for real-time police alerts.
 
-[![Watch the video](https://img.youtube.com/vi/dQw4w9WgXcQ/0.jpg)](https://drive.google.com/file/d/1wEkX0VqzVq8f2p-2p7PEFoj8aVQevitS/view?usp=sharing)
+[![Watch the video]](https://drive.google.com/file/d/1wEkX0VqzVq8f2p-2p7PEFoj8aVQevitS/view?usp=sharing)
 
