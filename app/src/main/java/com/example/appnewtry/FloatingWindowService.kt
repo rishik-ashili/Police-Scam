@@ -158,14 +158,16 @@ class FloatingWindowService : Service() {
             val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             val mediaProjection = projectionManager.getMediaProjection(resultCode, data)
             
-            // Initialize screenshot manager
-            screenshotManager = ScreenshotManager(this)
-            screenshotManager?.initializeProjection(resultCode, data)
-            
-            // Initialize voice analysis manager with media projection
-            voiceAnalysisManager = VoiceAnalysisManager(this)
-            mediaProjection?.let { projection ->
-                voiceAnalysisManager?.initializeMediaProjection(projection)
+            if (mediaProjection != null) {
+                // Initialize screenshot manager with existing projection
+                screenshotManager = ScreenshotManager(this)
+                screenshotManager?.initializeWithProjection(mediaProjection)
+                
+                // Initialize voice analysis manager with same projection
+                voiceAnalysisManager = VoiceAnalysisManager(this)
+                voiceAnalysisManager?.initializeMediaProjection(mediaProjection)
+            } else {
+                Log.e("FloatingService", "Failed to create MediaProjection")
             }
         } else {
             Log.e("FloatingService", "Invalid projection data received: resultCode=$resultCode, data=$data")

@@ -15,6 +15,7 @@ import android.util.Log
 import android.view.WindowManager
 import android.graphics.Point
 import android.view.Surface
+import java.util.concurrent.atomic.AtomicBoolean
 
 class ScreenshotManager(private val context: Context) {
     private var mediaProjection: MediaProjection? = null
@@ -24,7 +25,8 @@ class ScreenshotManager(private val context: Context) {
     private var screenHeight: Int = 0
     private var screenDensity: Int = 0
     private var handler: Handler = Handler(Looper.getMainLooper())
-    private var isInitialized = false
+    private var isInitialized = AtomicBoolean(false)
+    private var isCapturing = AtomicBoolean(false)
 
     init {
         try {
@@ -41,28 +43,22 @@ class ScreenshotManager(private val context: Context) {
         }
     }
 
-    fun initializeProjection(resultCode: Int, data: Intent) {
+    @Synchronized
+    fun initializeWithProjection(projection: MediaProjection) {
         try {
-            Log.d("ScreenshotManager", "Starting projection initialization with resultCode: $resultCode")
-            val projectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            Log.d("ScreenshotManager", "Starting projection initialization with existing MediaProjection")
             
-            // Clean up existing resources
+            // Clean up existing resources first
             tearDown()
             
-            mediaProjection = projectionManager.getMediaProjection(resultCode, data)
-            if (mediaProjection == null) {
-                Log.e("ScreenshotManager", "Failed to create MediaProjection")
-                isInitialized = false
-                return
+            mediaProjection = projection.apply {
+                registerCallback(object : MediaProjection.Callback() {
+                    override fun onStop() {
+                        Log.d("ScreenshotManager", "MediaProjection stopped")
+                        handler.post { tearDown() }
+                    }
+                }, handler)
             }
-
-            // Register callback to handle projection state changes
-            mediaProjection?.registerCallback(object : MediaProjection.Callback() {
-                override fun onStop() {
-                    Log.d("ScreenshotManager", "MediaProjection stopped")
-                    tearDown()
-                }
-            }, handler)
 
             // Create new ImageReader
             imageReader = ImageReader.newInstance(
@@ -90,7 +86,7 @@ class ScreenshotManager(private val context: Context) {
                 return
             }
 
-            isInitialized = true
+            isInitialized.set(true)
             Log.d("ScreenshotManager", "MediaProjection initialized successfully")
         } catch (e: Exception) {
             Log.e("ScreenshotManager", "Error in initializeProjection: ${e.message}")
@@ -99,18 +95,22 @@ class ScreenshotManager(private val context: Context) {
         }
     }
 
+    @Synchronized
     fun captureScreenshot(callback: (Bitmap?) -> Unit) {
-        if (!isInitialized) {
-            Log.e("ScreenshotManager", "Screenshot manager not initialized")
+        if (!isInitialized.get() || isCapturing.get()) {
+            Log.e("ScreenshotManager", "Screenshot manager not initialized or capture in progress")
             callback(null)
             return
         }
 
         try {
+            isCapturing.set(true)
             Log.d("ScreenshotManager", "Starting screenshot capture")
             
-            if (imageReader == null) {
+            val currentImageReader = imageReader
+            if (currentImageReader == null) {
                 Log.e("ScreenshotManager", "ImageReader is null")
+                isCapturing.set(false)
                 callback(null)
                 return
             }
@@ -118,9 +118,10 @@ class ScreenshotManager(private val context: Context) {
             // Add a delay to ensure screen content is ready
             handler.postDelayed({
                 try {
-                    val image = imageReader?.acquireLatestImage()
+                    val image = currentImageReader.acquireLatestImage()
                     if (image == null) {
                         Log.e("ScreenshotManager", "Acquired image is null")
+                        isCapturing.set(false)
                         callback(null)
                         return@postDelayed
                     }
@@ -140,7 +141,7 @@ class ScreenshotManager(private val context: Context) {
                         Bitmap.Config.ARGB_8888
                     )
 
-                    buffer.rewind() // Ensure buffer is ready to be read
+                    buffer.rewind()
                     bitmap.copyPixelsFromBuffer(buffer)
 
                     // Crop the bitmap to remove padding
@@ -152,26 +153,34 @@ class ScreenshotManager(private val context: Context) {
                     
                     image.close()
                     Log.d("ScreenshotManager", "Screenshot captured successfully")
+                    isCapturing.set(false)
                     callback(croppedBitmap)
                 } catch (e: Exception) {
                     Log.e("ScreenshotManager", "Error processing image: ${e.message}")
                     e.printStackTrace()
+                    isCapturing.set(false)
                     callback(null)
                 }
-            }, 150) // Increased delay for better reliability
+            }, 150)
         } catch (e: Exception) {
             Log.e("ScreenshotManager", "Error capturing screenshot: ${e.message}")
             e.printStackTrace()
+            isCapturing.set(false)
             callback(null)
         }
     }
 
+    @Synchronized
     fun tearDown() {
         try {
-            isInitialized = false
+            isInitialized.set(false)
+            isCapturing.set(false)
             virtualDisplay?.release()
+            virtualDisplay = null
             imageReader?.close()
-            mediaProjection?.stop()
+            imageReader = null
+            // Don't stop the mediaProjection here since we don't own it
+            mediaProjection = null
             handler.removeCallbacksAndMessages(null)
             Log.d("ScreenshotManager", "Resources released successfully")
         } catch (e: Exception) {
